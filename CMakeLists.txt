@@ -38,7 +38,9 @@ find_package(OpenCV 4.4)
 MESSAGE("OPENCV VERSION:")
 MESSAGE(${OpenCV_VERSION})
 
-find_package(Eigen3 3.1.0 REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS serialization)
+find_package(OpenSSL REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(realsense2)
 
@@ -48,6 +50,8 @@ ${PROJECT_SOURCE_DIR}/include
 ${PROJECT_SOURCE_DIR}/include/CameraModels
 ${PROJECT_SOURCE_DIR}/Thirdparty/Sophus
 ${EIGEN3_INCLUDE_DIR}
+${EIGEN3_INCLUDE_DIRS}
+${Boost_INCLUDE_DIRS}
 ${Pangolin_INCLUDE_DIRS}
 )
 
@@ -115,16 +119,17 @@ include/Config.h
 include/Settings.h
 include/YOLO.h)
 
+add_subdirectory(Thirdparty/DBoW2)
 add_subdirectory(Thirdparty/g2o)
 
 target_link_libraries(${PROJECT_NAME}
 ${OpenCV_LIBS}
 ${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
-${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
--lboost_serialization
--lcrypto
+DBoW2
+g2o
+${Boost_LIBRARIES}
+OpenSSL::Crypto
 )
 
 # If RealSense SDK is found the library is added and its examples compiled

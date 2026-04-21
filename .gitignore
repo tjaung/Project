@@ -1,6 +1,9 @@
 # Ignore all
 *
 
+.DS_Store
+*/.DS_Store
+
 # Unignore all with extensions
 !*.*
 
@@ -91,3 +94,8 @@ my_settings.txt
 borrar/*
 
 */ExecMean.txt
+
+# Keep macOS Finder metadata ignored even after later unignore rules.
+.DS_Store
+*/.DS_Store
+**/.DS_Store

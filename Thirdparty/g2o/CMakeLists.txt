@@ -69,11 +69,15 @@ SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${g2o_C_FLAGS}")
 
 # Find Eigen3
 SET(EIGEN3_INCLUDE_DIR ${G2O_EIGEN3_INCLUDE})
-FIND_PACKAGE(Eigen3 3.1.0 REQUIRED)
+FIND_PACKAGE(Eigen3 REQUIRED)
 IF(EIGEN3_FOUND)
-  SET(G2O_EIGEN3_INCLUDE ${EIGEN3_INCLUDE_DIR} CACHE PATH "Directory of Eigen3")
+  if(EIGEN3_INCLUDE_DIR)
+    SET(G2O_EIGEN3_INCLUDE ${EIGEN3_INCLUDE_DIR} CACHE PATH "Directory of Eigen3" FORCE)
+  else()
+    SET(G2O_EIGEN3_INCLUDE ${EIGEN3_INCLUDE_DIRS} CACHE PATH "Directory of Eigen3" FORCE)
+  endif()
 ELSE(EIGEN3_FOUND)
-  SET(G2O_EIGEN3_INCLUDE "" CACHE PATH "Directory of Eigen3")
+  SET(G2O_EIGEN3_INCLUDE "" CACHE PATH "Directory of Eigen3" FORCE)
 ENDIF(EIGEN3_FOUND)
 
 # Generate config.h
@@ -85,7 +89,8 @@ INCLUDE_DIRECTORIES(
 ${g2o_SOURCE_DIR}/core
 ${g2o_SOURCE_DIR}/types
 ${g2o_SOURCE_DIR}/stuff 
-${G2O_EIGEN3_INCLUDE})
+${G2O_EIGEN3_INCLUDE}
+${EIGEN3_INCLUDE_DIRS})
 
 # Include the subdirectories
 ADD_LIBRARY(g2o ${G2O_LIB_TYPE}
@@ -176,3 +181,9 @@ g2o/stuff/string_tools.cpp
 g2o/stuff/property.cpp       
 g2o/stuff/property.h       
 )
+
+target_include_directories(g2o PRIVATE ${G2O_EIGEN3_INCLUDE} ${EIGEN3_INCLUDE_DIRS})
+
+if(TARGET Eigen3::Eigen)
+  target_link_libraries(g2o PUBLIC Eigen3::Eigen)
+endif()
