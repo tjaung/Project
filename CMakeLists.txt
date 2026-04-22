@@ -86,6 +86,7 @@ src/GeometricTools.cc
 src/TwoViewReconstruction.cc
 src/Config.cc
 src/Settings.cc
+src/DebugMapPublisher.cc
 src/YOLO.cc
 include/System.h
 include/Tracking.h
@@ -117,6 +118,7 @@ include/TwoViewReconstruction.h
 include/SerializationUtils.h
 include/Config.h
 include/Settings.h
+include/DebugMapPublisher.h
 include/YOLO.h)
 
 add_subdirectory(Thirdparty/DBoW2)
@@ -273,6 +275,27 @@ if(realsense2_FOUND)
     add_executable(recorder_realsense_T265
             Examples/Calibration/recorder_realsense_T265.cc)
     target_link_libraries(recorder_realsense_T265 ${PROJECT_NAME})
+endif()
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Tools)
+
+add_executable(debug_map_viewer
+        Examples/Tools/debug_map_viewer.cc)
+target_link_libraries(debug_map_viewer ${OpenCV_LIBS})
+
+find_path(GLFW_INCLUDE_DIR GLFW/glfw3.h PATHS /opt/homebrew/include /usr/local/include)
+find_library(GLFW_LIBRARY glfw PATHS /opt/homebrew/lib /usr/local/lib)
+find_library(OPENGL_FRAMEWORK OpenGL)
+
+if(GLFW_INCLUDE_DIR AND GLFW_LIBRARY AND OPENGL_FRAMEWORK)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/DebugViewerNative)
+
+    add_executable(debug_map_viewer_gl
+            DebugViewerNative/debug_map_viewer_gl.cc)
+    target_include_directories(debug_map_viewer_gl PRIVATE ${GLFW_INCLUDE_DIR})
+    target_link_libraries(debug_map_viewer_gl ${GLFW_LIBRARY} ${OPENGL_FRAMEWORK} ${OpenCV_LIBS})
+else()
+    message(WARNING "GLFW/OpenGL not found; skipping debug_map_viewer_gl target")
 endif()
 
 #Old examples
