@@ -20,6 +20,7 @@
 
 #include "System.h"
 #include "Converter.h"
+#include "DepthAnythingV2.h"
 #include <thread>
 #include <pangolin/pangolin.h>
 #include <iomanip>
@@ -41,6 +42,7 @@ Verbose::eLevel Verbose::th = Verbose::VERBOSITY_NORMAL;
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
                const bool bUseViewer, const int initFr, const string &strSequence):
     mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mpDebugMapPublisher(static_cast<DebugMapPublisher*>(NULL)),
+    mpDepthAnythingV2(static_cast<DepthAnythingV2*>(NULL)),
     mptDebugMapPublisher(nullptr),
     mbReset(false), mbResetActiveMap(false),
     mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false)
@@ -223,6 +225,36 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
     mpTracker->SetYOLO(mpYOLO);
+
+    const char* monoDA2Enabled = std::getenv("ORB_SLAM3_MONO_DA2");
+    const bool useMonoDA2 = monoDA2Enabled && std::string(monoDA2Enabled) != "0";
+    if(useMonoDA2 && (mSensor == MONOCULAR || mSensor == IMU_MONOCULAR))
+    {
+        std::string modelPath = std::string(ORB_SLAM3_SOURCE_DIR) + "/da2-code/model_fp16.onnx";
+        const char* monoDA2Model = std::getenv("ORB_SLAM3_DA2_MODEL");
+        if(monoDA2Model && monoDA2Model[0] != '\0')
+            modelPath = monoDA2Model;
+
+        int targetMinSide = 256;
+        const char* monoDA2MinSide = std::getenv("ORB_SLAM3_DA2_MIN_SIDE");
+        if(monoDA2MinSide && monoDA2MinSide[0] != '\0')
+            targetMinSide = std::max(64, atoi(monoDA2MinSide));
+
+        mpDepthAnythingV2 = new DepthAnythingV2(modelPath, targetMinSide, 1);
+        if(mpDepthAnythingV2->IsReady())
+        {
+            mpTracker->SetDepthAnythingV2(mpDepthAnythingV2);
+            cout << "Monocular Depth Anything V2 masking is enabled." << endl;
+            cout << "Depth Anything V2 model: " << mpDepthAnythingV2->GetModelPath() << endl;
+            cout << "Depth Anything V2 target min side: " << mpDepthAnythingV2->GetTargetMinSide() << endl;
+        }
+        else
+        {
+            cout << "Monocular Depth Anything V2 failed to initialize from: " << modelPath << endl;
+            delete mpDepthAnythingV2;
+            mpDepthAnythingV2 = nullptr;
+        }
+    }
 
     mpLocalMapper->SetTracker(mpTracker);
     mpLocalMapper->SetLoopCloser(mpLoopCloser);

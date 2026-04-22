@@ -44,10 +44,23 @@ find_package(OpenSSL REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(realsense2)
 
+set(DA2_CODE_DIR ${PROJECT_SOURCE_DIR}/da2-code)
+set(ONNXRUNTIME_ROOT ${DA2_CODE_DIR}/onnxruntime-osx-arm64-1.17.1)
+set(ONNXRUNTIME_INCLUDE_DIR ${ONNXRUNTIME_ROOT}/include)
+set(ONNXRUNTIME_LIB_DIR ${ONNXRUNTIME_ROOT}/lib)
+find_library(ONNXRUNTIME_LIB onnxruntime PATHS ${ONNXRUNTIME_LIB_DIR} NO_DEFAULT_PATH)
+
+if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}/onnxruntime_cxx_api.h" AND ONNXRUNTIME_LIB)
+  message(STATUS "Using ONNX Runtime from ${ONNXRUNTIME_ROOT}")
+else()
+  message(FATAL_ERROR "ONNX Runtime not found under ${ONNXRUNTIME_ROOT}.")
+endif()
+
 include_directories(
 ${PROJECT_SOURCE_DIR}
 ${PROJECT_SOURCE_DIR}/include
 ${PROJECT_SOURCE_DIR}/include/CameraModels
+${ONNXRUNTIME_INCLUDE_DIR}
 ${PROJECT_SOURCE_DIR}/Thirdparty/Sophus
 ${EIGEN3_INCLUDE_DIR}
 ${EIGEN3_INCLUDE_DIRS}
@@ -87,6 +100,7 @@ src/TwoViewReconstruction.cc
 src/Config.cc
 src/Settings.cc
 src/DebugMapPublisher.cc
+src/DepthAnythingV2.cc
 src/YOLO.cc
 include/System.h
 include/Tracking.h
@@ -119,7 +133,14 @@ include/SerializationUtils.h
 include/Config.h
 include/Settings.h
 include/DebugMapPublisher.h
+include/DepthAnythingV2.h
 include/YOLO.h)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE ORB_SLAM3_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  BUILD_RPATH "${ONNXRUNTIME_LIB_DIR}"
+  INSTALL_RPATH "${ONNXRUNTIME_LIB_DIR}")
 
 add_subdirectory(Thirdparty/DBoW2)
 add_subdirectory(Thirdparty/g2o)
@@ -132,6 +153,7 @@ DBoW2
 g2o
 ${Boost_LIBRARIES}
 OpenSSL::Crypto
+${ONNXRUNTIME_LIB}
 )
 
 # If RealSense SDK is found the library is added and its examples compiled

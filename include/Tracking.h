@@ -41,6 +41,8 @@
 #include "GeometricCamera.h"
 
 #include <mutex>
+#include <deque>
+#include <tuple>
 #include <unordered_set>
 
 namespace ORB_SLAM3
@@ -54,6 +56,7 @@ class LoopClosing;
 class System;
 class Settings;
 class YOLO;
+class DepthAnythingV2;
 
 class Tracking
 {  
@@ -80,6 +83,7 @@ public:
     void SetLocalMapper(LocalMapping* pLocalMapper);
     void SetLoopClosing(LoopClosing* pLoopClosing);
     void SetYOLO(YOLO* pYOLO);
+    void SetDepthAnythingV2(DepthAnythingV2* pDepthAnythingV2);
     void SetViewer(Viewer* pViewer);
     void SetStepByStep(bool bSet);
     bool GetStepByStep();
@@ -190,6 +194,8 @@ public:
     cv::Mat mImDepth2;
     cv::Mat mImGrayLastKey;
     cv::Mat mImMaskLastKey;
+    std::deque<std::tuple<int, cv::Mat, cv::Mat> > mMonoDepthFrameCache;
+    int mnLastDepthFrameSubmittedToYOLO = -1;
 
     vector<MapPoint*> GetLocalMapMPS();
 
@@ -285,6 +291,7 @@ protected:
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
     YOLO* mpYOLO; // -----------------------------------------------------------------------------------------
+    DepthAnythingV2* mpDepthAnythingV2;
 
     //ORB
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;

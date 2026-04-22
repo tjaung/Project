@@ -20,6 +20,9 @@
 #include<algorithm>
 #include<fstream>
 #include<chrono>
+#include<sstream>
+#include<iomanip>
+#include<cstdlib>
 
 #include<opencv2/core/core.hpp>
 
@@ -145,11 +148,39 @@ int main(int argc, char **argv)
         totaltime+=vTimesTrack[ni];
     }
     cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
+    const float medianTrackTime = vTimesTrack[nImages/2];
+    const float meanTrackTime = totaltime/nImages;
+    cout << "median tracking time: " << medianTrackTime << endl;
+    cout << "mean tracking time: " << meanTrackTime << endl;
 
-    // Save camera trajectory
+    // Save trajectories
+    SLAM.SaveTrajectoryEuRoC("CameraTrajectory.txt");
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+
+    const string groundtruthFile = string(argv[3]) + "/groundtruth.txt";
+    ifstream gt(groundtruthFile.c_str());
+    if(gt.good())
+    {
+        const string datasetName = string(argv[3]).substr(string(argv[3]).find_last_of("/\\") + 1);
+        const string metricsCsv = "out/mono_tum_metrics.csv";
+        ostringstream cmd;
+        cmd << "python3 evaluation/evaluate_tum_metrics.py "
+            << "\"" << groundtruthFile << "\" "
+            << "\"CameraTrajectory.txt\" "
+            << "--tracking-time-sec "
+            << fixed << setprecision(9) << meanTrackTime << " "
+            << "--median-tracking-time-sec "
+            << fixed << setprecision(9) << medianTrackTime << " "
+            << "--dataset-name "
+            << "\"" << datasetName << "\" "
+            << "--csv "
+            << "\"" << metricsCsv << "\"";
+
+        cout << endl << "Evaluating trajectory metrics..." << endl;
+        const int evalStatus = std::system(cmd.str().c_str());
+        if(evalStatus != 0)
+            cerr << "Trajectory metric evaluation failed with exit code " << evalStatus << endl;
+    }
 
     return 0;
 }

@@ -2030,6 +2030,12 @@ namespace ORB_SLAM3
             }
         }
 
+        if(lastKeyPoints.empty() || CurrImg.empty() || LastImg.empty() || imMask.empty())
+        {
+            CurrentFrame.N = 0;
+            return 0;
+        }
+
         if (LastImg.channels() > 1)
             cv::cvtColor(LastImg, LastImg, cv::COLOR_BGR2GRAY);
 
@@ -2037,12 +2043,29 @@ namespace ORB_SLAM3
             cv::cvtColor(CurrImg, CurrImg, cv::COLOR_BGR2GRAY);
 
         // Find matches using LK optical flow
-        cv::calcOpticalFlowPyrLK(LastImg, CurrImg, lastKeyPoints, currKeyPoints, status, error);
+        try
+        {
+            cv::calcOpticalFlowPyrLK(LastImg, CurrImg, lastKeyPoints, currKeyPoints, status, error);
+        }
+        catch(const cv::Exception&)
+        {
+            CurrentFrame.N = 0;
+            return 0;
+        }
         
         // Remove points without match
         for (size_t i = 0; i < currKeyPoints.size(); i++)
         {
-            if (status[i] && imMask.at<uchar>(currKeyPoints[i].y, currKeyPoints[i].x) == 0)
+            const cv::Point2f& pt = currKeyPoints[i];
+            if(!std::isfinite(pt.x) || !std::isfinite(pt.y))
+                continue;
+
+            const int x = static_cast<int>(pt.x);
+            const int y = static_cast<int>(pt.y);
+            if(x < 0 || y < 0 || x >= imMask.cols || y >= imMask.rows)
+                continue;
+
+            if (status[i] && imMask.at<uchar>(y, x) == 0)
             {
                 cv::KeyPoint kp(currKeyPoints[i], 1.0f);
                 CurrentFrame.mvKeysUn.push_back(kp);
