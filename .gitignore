@@ -86,6 +86,7 @@ time*
 Time*
 Table_Euroc
 Table_TUMVI_rooms/
+debug_map_state.txt
 *.pyc
 *.osa
 .idea/

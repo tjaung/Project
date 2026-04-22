@@ -40,6 +40,7 @@
 #include "ImuTypes.h"
 #include "Settings.h"
 #include "YOLO.h"
+#include "DebugMapPublisher.h"
 
 
 namespace ORB_SLAM3
@@ -81,6 +82,7 @@ class LocalMapping;
 class LoopClosing;
 class Settings;
 class YOLO;
+class DebugMapPublisher;
 
 class System
 {
@@ -228,6 +230,7 @@ private:
 
     // The viewer draws the map and the current camera pose. It uses Pangolin.
     Viewer* mpViewer;
+    DebugMapPublisher* mpDebugMapPublisher;
 
     // YOLO
     YOLO* mpYOLO;
@@ -240,6 +243,7 @@ private:
     std::thread* mptLocalMapping;
     std::thread* mptLoopClosing;
     std::thread* mptViewer;
+    std::thread* mptDebugMapPublisher;
     std::thread* mptYOLO;
 
     // Reset flag

@@ -40,7 +40,9 @@ Verbose::eLevel Verbose::th = Verbose::VERBOSITY_NORMAL;
 
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
                const bool bUseViewer, const int initFr, const string &strSequence):
-    mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false), mbResetActiveMap(false),
+    mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mpDebugMapPublisher(static_cast<DebugMapPublisher*>(NULL)),
+    mptDebugMapPublisher(nullptr),
+    mbReset(false), mbResetActiveMap(false),
     mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false)
 {
     // Output welcome message
@@ -229,6 +231,18 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpLoopCloser->SetLocalMapper(mpLocalMapper);
 
     //usleep(10*1000*1000);
+
+    const char* debugMapPath = std::getenv("ORB_SLAM3_DEBUG_MAP_FILE");
+    if(debugMapPath && debugMapPath[0] != '\0')
+    {
+        mpDebugMapPublisher = new DebugMapPublisher(mpAtlas, mpFrameDrawer, mpMapDrawer, debugMapPath);
+        mptDebugMapPublisher = new thread(&DebugMapPublisher::Run, mpDebugMapPublisher);
+        cout << "Debug map publisher writing snapshots to: " << debugMapPath << endl;
+    }
+    else
+    {
+        mptDebugMapPublisher = nullptr;
+    }
 
     //Initialize the Viewer thread and launch
     if(bUseViewer)
@@ -529,6 +543,12 @@ void System::Shutdown()
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();
     mpYOLO->RequestFinish();
+    if(mpDebugMapPublisher)
+    {
+        mpDebugMapPublisher->RequestFinish();
+        while(!mpDebugMapPublisher->isFinished())
+            usleep(5000);
+    }
     /*if(mpViewer)
     {
         mpViewer->RequestFinish();
@@ -1552,4 +1572,3 @@ string System::CalculateCheckSum(string filename, int type)
 }
 
 } //namespace ORB_SLAM
-
