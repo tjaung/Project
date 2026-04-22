@@ -69,7 +69,7 @@ Included in the repository:
 - g2o in `Thirdparty/g2o`
 - Sophus in `Thirdparty/Sophus`
 - Depth Anything v2 ONNX model in [da2-code/model_fp16.onnx](da2-code/model_fp16.onnx)
-- ONNX Runtime for Apple Silicon macOS in [da2-code/onnxruntime-osx-arm64-1.17.1](</Users/timjaung/Documents/NEU/CS5330/Projects/Final/Project/da2-code/onnxruntime-osx-arm64-1.17.1>)
+- ONNX Runtime for Apple Silicon macOS in `da2-code/onnxruntime-osx-arm64-1.17.1`
 
 Required Python packages:
 
@@ -226,7 +226,7 @@ Each successful run produces:
 - `CameraTrajectory.txt`
 - `KeyFrameTrajectory.txt`
 - metrics printed in the terminal
-- a CSV row appended to [out/mono_tum_metrics.csv](/Users/timjaung/Documents/NEU/CS5330/Projects/Final/Project/out/mono_tum_metrics.csv:1)
+- a CSV row appended to `out/mono_tum_metrics.csv`
 
 The CSV includes:
 
