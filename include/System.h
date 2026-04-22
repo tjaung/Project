@@ -83,6 +83,7 @@ class LoopClosing;
 class Settings;
 class YOLO;
 class DebugMapPublisher;
+class DepthAnythingV2;
 
 class System
 {
@@ -234,6 +235,7 @@ private:
 
     // YOLO
     YOLO* mpYOLO;
+    DepthAnythingV2* mpDepthAnythingV2;
 
     FrameDrawer* mpFrameDrawer;
     MapDrawer* mpMapDrawer;

@@ -28,6 +28,7 @@
 #include "KannalaBrandt8.h"
 #include "MLPnPsolver.h"
 #include "GeometricTools.h"
+#include "DepthAnythingV2.h"
 
 #include <iostream>
 
@@ -46,7 +47,8 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
-    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
+    mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL)),
+    mpDepthAnythingV2(static_cast<DepthAnythingV2*>(NULL))
 {
     // Load camera parameters from settings file
     if(settings){
@@ -1441,6 +1443,11 @@ void Tracking::SetYOLO(YOLO* pYOLO)
     mpYOLO=pYOLO;
 }
 
+void Tracking::SetDepthAnythingV2(DepthAnythingV2* pDepthAnythingV2)
+{
+    mpDepthAnythingV2 = pDepthAnythingV2;
+}
+
 void Tracking::SetViewer(Viewer *pViewer)
 {
     mpViewer=pViewer;
@@ -1659,51 +1666,244 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB, const cv::Mat &imD, c
 
 Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp, string filename)
 {
-    mImGray = im;
-    if(mImGray.channels()==3)
+    mImMask.release();
+    mImDepth.release();
+    mImDepth2.release();
+
+    if(im.channels() == 1)
     {
+        mImGray = im.clone();
+        cv::cvtColor(im, mImRGB, cv::COLOR_GRAY2BGR);
+    }
+    else if(im.channels() == 3)
+    {
+        mImRGB = im.clone();
+        mImGray = im.clone();
         if(mbRGB)
             cvtColor(mImGray,mImGray,cv::COLOR_RGB2GRAY);
         else
             cvtColor(mImGray,mImGray,cv::COLOR_BGR2GRAY);
     }
-    else if(mImGray.channels()==4)
+    else if(im.channels() == 4)
     {
         if(mbRGB)
-            cvtColor(mImGray,mImGray,cv::COLOR_RGBA2GRAY);
+            cv::cvtColor(im, mImRGB, cv::COLOR_RGBA2BGR);
         else
-            cvtColor(mImGray,mImGray,cv::COLOR_BGRA2GRAY);
+            cv::cvtColor(im, mImRGB, cv::COLOR_BGRA2BGR);
+        cv::cvtColor(mImRGB, mImGray, cv::COLOR_BGR2GRAY);
+    }
+    else
+    {
+        mImGray = im.clone();
+        mImRGB = im.clone();
     }
 
-    if (mSensor == System::MONOCULAR)
+    if(!(mpDepthAnythingV2 && mpYOLO))
     {
-        if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET ||(lastID - initID) < mMaxFrames)
-            mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
-        else
-            mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
-    }
-    else if(mSensor == System::IMU_MONOCULAR)
-    {
-        if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
+        const bool useMask = !mImMask.empty() && cv::countNonZero(mImMask) > 0;
+
+        if (mSensor == System::MONOCULAR)
         {
-            mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+            ORBextractor* extractor = (mState==NOT_INITIALIZED || mState==NO_IMAGES_YET ||(lastID - initID) < mMaxFrames) ? mpIniORBextractor : mpORBextractorLeft;
+            if(useMask)
+                extractor = mpORBextractorDyna;
+
+            if(useMask)
+                mCurrentFrame = Frame(mImGray,mImMask,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+            else
+                mCurrentFrame = Frame(mImGray,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
         }
-        else
-            mCurrentFrame = Frame(mImGray,timestamp,mpORBextractorLeft,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
-    }
+        else if(mSensor == System::IMU_MONOCULAR)
+        {
+            ORBextractor* extractor = (mState==NOT_INITIALIZED || mState==NO_IMAGES_YET) ? mpIniORBextractor : mpORBextractorLeft;
+            if(useMask)
+                extractor = mpORBextractorDyna;
 
-    if (mState==NO_IMAGES_YET)
-        t0=timestamp;
+            if(useMask)
+                mCurrentFrame = Frame(mImGray,mImMask,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+            else
+                mCurrentFrame = Frame(mImGray,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+        }
 
-    mCurrentFrame.mNameFile = filename;
-    mCurrentFrame.mnDataset = mnNumDataset;
+        if (mState==NO_IMAGES_YET)
+            t0=timestamp;
+
+        mCurrentFrame.mNameFile = filename;
+        mCurrentFrame.mnDataset = mnNumDataset;
 
 #ifdef REGISTER_TIMES
-    vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
+        vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
 #endif
 
-    lastID = mCurrentFrame.mnId;
-    Track();
+        lastID = mCurrentFrame.mnId;
+        Track();
+
+        return mCurrentFrame.GetPose();
+    }
+
+    auto track_start = std::chrono::high_resolution_clock::now();
+
+    int validLastLKMapPoints = 0;
+    for(size_t i = 0; i < mLastFrameLK.mvpMapPoints.size(); ++i)
+    {
+        MapPoint* pMP = mLastFrameLK.mvpMapPoints[i];
+        if(pMP && !pMP->isBad() && pMP->Observations() >= 3)
+            ++validLastLKMapPoints;
+    }
+
+    bool monoInitialized = false;
+    if(mFrameNum > 3) monoInitialized = true;
+
+    mbStartOpticalFlow = monoInitialized &&
+                         mState == OK &&
+                         validLastLKMapPoints >= 20 &&
+                         !mImGrayLastLK.empty();
+
+    mMonoDepthFrameCache.push_back(std::make_tuple(mFrameNum, mImGray.clone(), mImRGB.clone()));
+    while(mMonoDepthFrameCache.size() > 16)
+        mMonoDepthFrameCache.pop_front();
+
+    mpDepthAnythingV2->Submit(mFrameNum, mImRGB);
+
+    int completedDepthFrameId = -1;
+    cv::Mat completedDepth8u;
+    if(mpDepthAnythingV2->GetLatestCompleted(completedDepthFrameId, completedDepth8u))
+    {
+        if(completedDepthFrameId == mFrameNum)
+            completedDepth8u.convertTo(mImDepth2, CV_32F, 1.0 / 255.0);
+
+        if(completedDepthFrameId > mnLastDepthFrameSubmittedToYOLO)
+        {
+            for(size_t i = 0; i < mMonoDepthFrameCache.size(); ++i)
+            {
+                if(std::get<0>(mMonoDepthFrameCache[i]) == completedDepthFrameId)
+                {
+                    cv::Mat refreshDepth;
+                    completedDepth8u.convertTo(refreshDepth, CV_32F, 1.0 / 255.0);
+                    mpYOLO->InsertInput(std::get<2>(mMonoDepthFrameCache[i]), refreshDepth);
+                    mnLastDepthFrameSubmittedToYOLO = completedDepthFrameId;
+                    break;
+                }
+            }
+        }
+    }
+
+    std::vector<cv::Mat> outputYOLO = mpYOLO->GetOutput();
+    bool updatedCurrentMaskEstimate = false;
+    if(outputYOLO.size() == 2 && mFrameNum == 1)
+    {
+        mImMask = outputYOLO[1];
+        mImGrayLastKey = outputYOLO[0];
+        mImMaskLastKey = outputYOLO[1];
+        updatedCurrentMaskEstimate = !mImMask.empty();
+    }
+    else if(outputYOLO.size() == 2 && mFrameNum > 1)
+    {
+        Eigen::Quaternionf q = mLastFrameLK.GetPose().unit_quaternion();
+        float roll = std::atan2(2.0 * (q.w() * q.z() + q.x() * q.y()), 1.0 - 2.0 * (q.z() * q.z() + q.x() * q.x()));
+        float rollDeg = roll * 180.0 / CV_PI;
+        bool isLargeRotation = (std::abs(rollDeg) > 10.0f);
+
+        int maskSizeYOLO = cv::countNonZero(outputYOLO[1]);
+        int maskSizeLast = mImMaskLastKey.empty() ? 0 : cv::countNonZero(mImMaskLastKey);
+        if(!(maskSizeYOLO == 0 && maskSizeLast > 0 && isLargeRotation))
+        {
+            mImGrayLastKey = outputYOLO[0];
+            mImMaskLastKey = outputYOLO[1];
+        }
+    }
+
+    if(mImMask.empty())
+        mImMask = cv::Mat::zeros(mImGray.size(), CV_8UC1);
+
+    if(mFrameNum > 1 && !mImMaskLastKey.empty() && !mImDepth2.empty())
+    {
+        PredictCurrentMask();
+        updatedCurrentMaskEstimate = !mImMask.empty();
+    }
+
+    if(mbStartOpticalFlow)
+    {
+        mCurrentFrame = Frame(mbStartOpticalFlow);
+        mCurrentFrame.mTimeStamp = timestamp;
+        if(!TrackWithOpticalFlow())
+        {
+            mbStartOpticalFlow = false;
+            mbNeedKF = true;
+        }
+    }
+
+    if(!mbNeedKF)
+    {
+        if(!monoInitialized) mbNeedKF = true;
+        else mbNeedKF = NeedNewKeyFrame();
+    }
+
+    if(mbNeedKF)
+    {
+        Sophus::SE3f Tcw;
+        if(mbStartOpticalFlow) Tcw = mCurrentFrame.GetPose();
+
+        const bool hasMask = (!mImMask.empty() && cv::countNonZero(mImMask) != 0) ||
+                             (!mImMaskLastKey.empty() && cv::countNonZero(mImMaskLastKey) != 0);
+        ORBextractor* extractor = hasMask ? mpORBextractorDyna :
+            ((mState==NOT_INITIALIZED || mState==NO_IMAGES_YET || (lastID - initID) < mMaxFrames) ? mpIniORBextractor : mpORBextractorLeft);
+
+        if(mSensor == System::MONOCULAR)
+        {
+            if(!mImMask.empty())
+                mCurrentFrame = Frame(mImGray,mImMask,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+            else
+                mCurrentFrame = Frame(mImGray,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth);
+        }
+        else if(mSensor == System::IMU_MONOCULAR)
+        {
+            if(!mImMask.empty())
+                mCurrentFrame = Frame(mImGray,mImMask,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+            else
+                mCurrentFrame = Frame(mImGray,timestamp,extractor,mpORBVocabulary,mpCamera,mDistCoef,mbf,mThDepth,&mLastFrame,*mpImuCalib);
+        }
+
+        if(mbStartOpticalFlow) mCurrentFrame.SetPose(Tcw);
+
+        if (mState==NO_IMAGES_YET)
+            t0=timestamp;
+
+        mCurrentFrame.mNameFile = filename;
+        mCurrentFrame.mnDataset = mnNumDataset;
+
+#ifdef REGISTER_TIMES
+        vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
+#endif
+
+        lastID = mCurrentFrame.mnId;
+        Track();
+    }
+    else
+    {
+        if(!mCurrentFrame.mpReferenceKF) mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        Sophus::SE3f Tcr_ = mCurrentFrame.GetPose() * mCurrentFrame.mpReferenceKF->GetPoseInverse();
+        mlRelativeFramePoses.push_back(Tcr_);
+        mlpReferences.push_back(mCurrentFrame.mpReferenceKF);
+        mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
+        mlbLost.push_back(mState==LOST);
+    }
+
+    mVelocityLK = mCurrentFrame.GetPose() * mLastFrameLK.GetPose().inverse();
+    if(updatedCurrentMaskEstimate && !mImMask.empty() && cv::countNonZero(mImMask) > 0)
+    {
+        mImGrayLastKey = mImGray.clone();
+        mImMaskLastKey = mImMask.clone();
+    }
+    mImGrayLastLK = mImGray;
+    mLastFrameLK = Frame(mCurrentFrame);
+    mFrameNum++;
+
+    auto track_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> track_duration = track_end - track_start;
+    mTotalTrackTime += track_duration.count();
+    std::cout << "Average processing time of GrabImageMonocular(): " << mTotalTrackTime / (double)(mFrameNum-1) << "ms" << std::endl;
+    std::cout << "Frame " << mCurrentFrame.mnId << " end" << std::endl;
 
     return mCurrentFrame.GetPose();
 }
@@ -4023,6 +4223,26 @@ void Tracking::Reset(bool bLocMap)
     mlpReferences.clear();
     mlFrameTimes.clear();
     mlbLost.clear();
+
+    mbStartOpticalFlow = false;
+    mbNeedKF = false;
+    mFrameNum = 1;
+    mTotalTrackTime = 0.0;
+    mLastFrameLK = Frame();
+    mImGrayLastLK.release();
+    mVelocityLK = Sophus::SE3f();
+    mImGray.release();
+    mImRGB.release();
+    mImMask.release();
+    mImDepth.release();
+    mImDepth2.release();
+    mImGrayLastKey.release();
+    mImMaskLastKey.release();
+    mMonoDepthFrameCache.clear();
+    mnLastDepthFrameSubmittedToYOLO = -1;
+    if(mpDepthAnythingV2)
+        mpDepthAnythingV2->ResetQueue();
+
     mCurrentFrame = Frame();
     mnLastRelocFrameId = 0;
     mLastFrame = Frame();
@@ -4112,6 +4332,25 @@ void Tracking::ResetActiveMap(bool bLocMap)
 
     mnInitialFrameId = mCurrentFrame.mnId;
     mnLastRelocFrameId = mCurrentFrame.mnId;
+
+    mbStartOpticalFlow = false;
+    mbNeedKF = false;
+    mFrameNum = 1;
+    mTotalTrackTime = 0.0;
+    mLastFrameLK = Frame();
+    mImGrayLastLK.release();
+    mVelocityLK = Sophus::SE3f();
+    mImGray.release();
+    mImRGB.release();
+    mImMask.release();
+    mImDepth.release();
+    mImDepth2.release();
+    mImGrayLastKey.release();
+    mImMaskLastKey.release();
+    mMonoDepthFrameCache.clear();
+    mnLastDepthFrameSubmittedToYOLO = -1;
+    if(mpDepthAnythingV2)
+        mpDepthAnythingV2->ResetQueue();
 
     mCurrentFrame = Frame();
     mLastFrame = Frame();
@@ -4292,6 +4531,12 @@ void Tracking::PredictCurrentMask()
     std::vector<unsigned char> status;
     std::vector<float> error;
 
+    if(mImGrayLastKey.empty() || mImGray.empty() || mImMaskLastKey.empty() || mImDepth2.empty())
+        return;
+
+    if(mImGrayLastKey.type() != CV_8UC1 || mImGray.type() != CV_8UC1 || mImMaskLastKey.type() != CV_8UC1 || mImDepth2.type() != CV_32F)
+        return;
+
     mImMask = cv::Mat::zeros(mImMaskLastKey.size(), CV_8UC1); // Static background is 0
 
     // Apply erosion for last key frame mask
@@ -4299,24 +4544,56 @@ void Tracking::PredictCurrentMask()
     cv::Mat erosionElement = cv::getStructuringElement(cv::MORPH_RECT,
                                                        cv::Size(2 * erosionSize + 1, 2 * erosionSize + 1),
                                                        cv::Point(erosionSize, erosionSize));
-    erode(mImMaskLastKey, mImMaskLastKey, erosionElement);
+    cv::Mat erodedMask;
+    erode(mImMaskLastKey, erodedMask, erosionElement);
 
-    ExtractDynaPoints(lastDynaPoints, mImGrayLastKey, mImMaskLastKey, 15);
+    ExtractDynaPoints(lastDynaPoints, mImGrayLastKey, erodedMask, 15);
 
-    if(!lastDynaPoints.empty())
+    std::vector<cv::Point2f> validLastDynaPoints;
+    validLastDynaPoints.reserve(lastDynaPoints.size());
+    for(const cv::Point2f& pt : lastDynaPoints)
     {
-        cv::calcOpticalFlowPyrLK(mImGrayLastKey, mImGray, lastDynaPoints, currDynaPoints, status, error);
+        if(!std::isfinite(pt.x) || !std::isfinite(pt.y))
+            continue;
+        if(pt.x < 0.0f || pt.y < 0.0f || pt.x >= static_cast<float>(mImGrayLastKey.cols) || pt.y >= static_cast<float>(mImGrayLastKey.rows))
+            continue;
+        validLastDynaPoints.push_back(pt);
+    }
+
+    if(!validLastDynaPoints.empty())
+    {
+        try
+        {
+            cv::calcOpticalFlowPyrLK(mImGrayLastKey, mImGray, validLastDynaPoints, currDynaPoints, status, error);
+        }
+        catch(const cv::Exception&)
+        {
+            return;
+        }
 
         for(size_t j = 0; j < status.size(); ++j)
         {
             if(status[j]) 
             {
-                float depth = mImDepth2.at<float>(currDynaPoints[j].y, currDynaPoints[j].x);
+                const cv::Point2f& currPt = currDynaPoints[j];
+                if(!std::isfinite(currPt.x) || !std::isfinite(currPt.y))
+                    continue;
+                const int x = static_cast<int>(currPt.x);
+                const int y = static_cast<int>(currPt.y);
+                if(x < 0 || y < 0 || x >= mImDepth2.cols || y >= mImDepth2.rows)
+                    continue;
+
+                float depth = mImDepth2.at<float>(y, x);
                 if (depth >= 0.05) trackedDynaPoints.push_back(cv::Point3f(currDynaPoints[j].x, currDynaPoints[j].y, depth));
             }
         }
 
+        if(trackedDynaPoints.empty())
+            return;
+
         ClusterWithDBSCAN(clusters, trackedDynaPoints, 50.0f, 15);
+        if(clusters.empty())
+            return;
         CreateMaskFromClusters(clusters);
     }
 }
@@ -4515,7 +4792,12 @@ void Tracking::CreateMaskFromClusters(const std::map<int, std::vector<cv::Point3
                 minY = std::min(minY, pt.y);
                 maxY = std::max(maxY, pt.y);
 
-                float depth = mImDepth2.at<float>(pt.y, pt.x);
+                const int x = static_cast<int>(pt.x);
+                const int y = static_cast<int>(pt.y);
+                if(x < 0 || y < 0 || x >= mImDepth2.cols || y >= mImDepth2.rows)
+                    continue;
+
+                float depth = mImDepth2.at<float>(y, x);
                 if(depth >= 0.05) pointsDepth.push_back(depth);
             }
 
@@ -4542,6 +4824,9 @@ void Tracking::CreateMaskFromClusters(const std::map<int, std::vector<cv::Point3
             cv::rectangle(hullMask, adjustedTopLeft, adjustedBottomRight, cv::Scalar(1), cv::FILLED); // Assuming hullMask is a cv::Mat where you want to draw the final rectangle
         }
         else continue;
+
+        if(pointsDepth.empty())
+            continue;
 
         std::sort(pointsDepth.begin(), pointsDepth.end());
         float value = pointsDepth[pointsDepth.size() / 2];
