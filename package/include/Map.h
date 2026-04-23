@@ -23,9 +23,9 @@
 #include "MapPoint.h"
 #include "KeyFrame.h"
 
-#include <set>
-#include <pangolin/pangolin.h>
+#include <cstdint>
 #include <mutex>
+#include <set>
 
 #include <boost/serialization/base_object.hpp>
 
@@ -188,7 +188,7 @@ protected:
 
 
     // View of the map in aerial sight (for the AtlasViewer)
-    GLubyte* mThumbnail;
+    std::uint8_t* mThumbnail;
 
     bool mIsInUse;
     bool mHasTumbnail;

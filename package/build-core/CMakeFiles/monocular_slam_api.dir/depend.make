@@ -1,0 +1,2 @@
+# Empty dependencies file for monocular_slam_api.
+# This may be replaced when dependencies are built.

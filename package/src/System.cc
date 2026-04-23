@@ -21,8 +21,10 @@
 #include "System.h"
 #include "Converter.h"
 #include "DepthAnythingV2.h"
+#ifdef ORB_SLAM3_HAS_PANGOLIN
+#include "Viewer.h"
+#endif
 #include <thread>
-#include <pangolin/pangolin.h>
 #include <iomanip>
 #include <openssl/md5.h>
 #include <boost/serialization/base_object.hpp>
@@ -278,13 +280,16 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     //Initialize the Viewer thread and launch
     if(bUseViewer)
-    //if(false) // TODO
     {
+#ifdef ORB_SLAM3_HAS_PANGOLIN
         mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile,settings_);
         mptViewer = new thread(&Viewer::Run, mpViewer);
         mpTracker->SetViewer(mpViewer);
         mpLoopCloser->mpViewer = mpViewer;
         mpViewer->both = mpFrameDrawer->both;
+#else
+        cout << "Viewer requested, but Pangolin viewer support is disabled in this build." << endl;
+#endif
     }
 
     // Fix verbosity

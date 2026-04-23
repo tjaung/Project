@@ -4,18 +4,41 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
-#include <limits>
 
 #include <opencv2/imgproc.hpp>
+
+#ifdef ORB_SLAM3_HAS_ONNXRUNTIME
+#include <onnxruntime_cxx_api.h>
+#endif
 
 namespace ORB_SLAM3
 {
 
+#ifdef ORB_SLAM3_HAS_ONNXRUNTIME
+class DepthAnythingV2::Impl
+{
+public:
+    Impl()
+        : env(ORT_LOGGING_LEVEL_WARNING, "depth-anything-v2")
+    {
+    }
+
+    Ort::Env env;
+    Ort::SessionOptions sessionOptions;
+    std::unique_ptr<Ort::Session> session;
+    std::string inputNameStorage;
+    std::string outputNameStorage;
+    std::vector<const char*> inputNames;
+    std::vector<const char*> outputNames;
+};
+#else
+class DepthAnythingV2::Impl
+{
+};
+#endif
+
 DepthAnythingV2::DepthAnythingV2(const std::string& modelPath, int targetMinSide, int intraOpThreads)
-    : mEnv(ORT_LOGGING_LEVEL_WARNING, "depth-anything-v2"),
-      mModelPath(modelPath),
-      mInputNameStorage("pixel_values"),
-      mOutputNameStorage("predicted_depth"),
+    : mModelPath(modelPath),
       mInputShape{{1, 3, 0, 0}},
       mInputHeight(0),
       mInputWidth(0),
@@ -25,25 +48,33 @@ DepthAnythingV2::DepthAnythingV2(const std::string& modelPath, int targetMinSide
       mbHasPendingRequest(false),
       mCompletedFrameId(-1),
       mbHasCompletedResult(false),
-      mbStopWorker(false)
+      mbStopWorker(false),
+      mpImpl(new Impl())
 {
-    mvInputNames.push_back(mInputNameStorage.c_str());
-    mvOutputNames.push_back(mOutputNameStorage.c_str());
+#ifdef ORB_SLAM3_HAS_ONNXRUNTIME
+    mpImpl->inputNameStorage = "pixel_values";
+    mpImpl->outputNameStorage = "predicted_depth";
+    mpImpl->inputNames.push_back(mpImpl->inputNameStorage.c_str());
+    mpImpl->outputNames.push_back(mpImpl->outputNameStorage.c_str());
 
     try
     {
-        mSessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        mSessionOptions.SetIntraOpNumThreads(std::max(1, intraOpThreads));
-        mpSession.reset(new Ort::Session(mEnv, mModelPath.c_str(), mSessionOptions));
+        mpImpl->sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        mpImpl->sessionOptions.SetIntraOpNumThreads(std::max(1, intraOpThreads));
+        mpImpl->session.reset(new Ort::Session(mpImpl->env, mModelPath.c_str(), mpImpl->sessionOptions));
         mbReady = true;
         mWorkerThread = std::thread(&DepthAnythingV2::WorkerLoop, this);
     }
     catch(const Ort::Exception& e)
     {
         std::cerr << "Failed to initialize Depth Anything V2 session: " << e.what() << std::endl;
-        mpSession.reset();
+        mpImpl->session.reset();
         mbReady = false;
     }
+#else
+    (void)intraOpThreads;
+    std::cerr << "Depth Anything V2 support was requested, but this build has no ONNX Runtime." << std::endl;
+#endif
 }
 
 DepthAnythingV2::~DepthAnythingV2()
@@ -60,7 +91,11 @@ DepthAnythingV2::~DepthAnythingV2()
 
 bool DepthAnythingV2::IsReady() const
 {
-    return mbReady && mpSession.get() != nullptr;
+#ifdef ORB_SLAM3_HAS_ONNXRUNTIME
+    return mbReady && mpImpl && mpImpl->session.get() != nullptr;
+#else
+    return false;
+#endif
 }
 
 const std::string& DepthAnythingV2::GetModelPath() const
@@ -75,6 +110,11 @@ int DepthAnythingV2::GetTargetMinSide() const
 
 bool DepthAnythingV2::Infer(const cv::Mat& bgrImage, cv::Mat& depth8u)
 {
+#ifndef ORB_SLAM3_HAS_ONNXRUNTIME
+    (void)bgrImage;
+    depth8u.release();
+    return false;
+#else
     if(!IsReady() || bgrImage.empty())
         return false;
 
@@ -111,12 +151,12 @@ bool DepthAnythingV2::Infer(const cv::Mat& bgrImage, cv::Mat& depth8u)
             mInputShape.size());
 
         Ort::RunOptions runOptions;
-        std::vector<Ort::Value> outputTensors = mpSession->Run(
+        std::vector<Ort::Value> outputTensors = mpImpl->session->Run(
             runOptions,
-            mvInputNames.data(),
+            mpImpl->inputNames.data(),
             &inputTensor,
             1,
-            mvOutputNames.data(),
+            mpImpl->outputNames.data(),
             1);
 
         if(outputTensors.empty() || !outputTensors[0].IsTensor())
@@ -170,6 +210,7 @@ bool DepthAnythingV2::Infer(const cv::Mat& bgrImage, cv::Mat& depth8u)
         std::cerr << "Depth Anything V2 inference failed: " << e.what() << std::endl;
         return false;
     }
+#endif
 }
 
 void DepthAnythingV2::Submit(int frameId, const cv::Mat& bgrImage)
@@ -252,6 +293,11 @@ float DepthAnythingV2::ComputeScaleFactor(const cv::Size& size) const
 
 bool DepthAnythingV2::PrepareInput(const cv::Mat& bgrImage, float scaleFactor)
 {
+#ifndef ORB_SLAM3_HAS_ONNXRUNTIME
+    (void)bgrImage;
+    (void)scaleFactor;
+    return false;
+#else
     cv::Mat scaledImage;
     if(std::fabs(scaleFactor - 1.0f) > 1e-5f)
     {
@@ -262,35 +308,34 @@ bool DepthAnythingV2::PrepareInput(const cv::Mat& bgrImage, float scaleFactor)
         scaledImage = bgrImage;
     }
 
-    if(scaledImage.empty())
+    cv::Mat rgbImage;
+    cv::cvtColor(scaledImage, rgbImage, cv::COLOR_BGR2RGB);
+
+    rgbImage.convertTo(rgbImage, CV_32FC3, 1.0 / 255.0);
+
+    mInputHeight = rgbImage.rows;
+    mInputWidth = rgbImage.cols;
+    if(mInputHeight <= 0 || mInputWidth <= 0)
         return false;
 
-    if(scaledImage.rows != mInputHeight || scaledImage.cols != mInputWidth)
-    {
-        mInputHeight = scaledImage.rows;
-        mInputWidth = scaledImage.cols;
-        mInputShape[2] = mInputHeight;
-        mInputShape[3] = mInputWidth;
-        mvInputData.resize(static_cast<size_t>(mInputHeight) * static_cast<size_t>(mInputWidth) * 3u);
-    }
+    mInputShape = {{1, 3, mInputHeight, mInputWidth}};
+    mvInputData.resize(static_cast<size_t>(3 * mInputHeight * mInputWidth));
 
-    const int imageSize = mInputHeight * mInputWidth;
-    for(int y = 0; y < scaledImage.rows; ++y)
+    for(int y = 0; y < mInputHeight; ++y)
     {
-        const cv::Vec3b* srcPtr = scaledImage.ptr<cv::Vec3b>(y);
-        float* dstR = &mvInputData[y * mInputWidth];
-        float* dstG = &mvInputData[imageSize + y * mInputWidth];
-        float* dstB = &mvInputData[imageSize * 2 + y * mInputWidth];
-
-        for(int x = 0; x < scaledImage.cols; ++x)
+        const cv::Vec3f* row = rgbImage.ptr<cv::Vec3f>(y);
+        for(int x = 0; x < mInputWidth; ++x)
         {
-            dstR[x] = ((static_cast<float>(srcPtr[x][2]) / 255.0f) - 0.485f) / 0.229f;
-            dstG[x] = ((static_cast<float>(srcPtr[x][1]) / 255.0f) - 0.456f) / 0.224f;
-            dstB[x] = ((static_cast<float>(srcPtr[x][0]) / 255.0f) - 0.406f) / 0.225f;
+            const cv::Vec3f& pixel = row[x];
+            const int idx = y * mInputWidth + x;
+            mvInputData[idx] = pixel[0];
+            mvInputData[mInputHeight * mInputWidth + idx] = pixel[1];
+            mvInputData[2 * mInputHeight * mInputWidth + idx] = pixel[2];
         }
     }
 
     return true;
+#endif
 }
 
 void DepthAnythingV2::WorkerLoop()
@@ -302,7 +347,10 @@ void DepthAnythingV2::WorkerLoop()
 
         {
             std::unique_lock<std::mutex> lock(mMutex);
-            mCondition.wait(lock, [this]() { return mbStopWorker || mbHasPendingRequest; });
+            mCondition.wait(lock, [this]()
+            {
+                return mbStopWorker || mbHasPendingRequest;
+            });
 
             if(mbStopWorker)
                 break;
@@ -312,19 +360,17 @@ void DepthAnythingV2::WorkerLoop()
             mbHasPendingRequest = false;
         }
 
-        cv::Mat depth8u;
-        const bool ok = Infer(requestImage, depth8u);
-
+        cv::Mat depth;
+        if(Infer(requestImage, depth))
         {
-            std::lock_guard<std::mutex> lock(mMutex);
-            if(ok)
             {
+                std::lock_guard<std::mutex> lock(mMutex);
                 mCompletedFrameId = requestFrameId;
-                mCompletedDepth = depth8u;
-                mbHasCompletedResult = true;
+                mCompletedDepth = depth;
+                mbHasCompletedResult = !mCompletedDepth.empty();
             }
+            mCondition.notify_all();
         }
-        mCondition.notify_all();
     }
 }
 

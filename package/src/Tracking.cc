@@ -29,6 +29,7 @@
 #include "MLPnPsolver.h"
 #include "GeometricTools.h"
 #include "DepthAnythingV2.h"
+#include "Viewer.h"
 
 #include <iostream>
 
@@ -4319,9 +4320,11 @@ void Tracking::Reset(bool bLocMap)
 
     if(mpViewer)
     {
+#ifdef ORB_SLAM3_HAS_PANGOLIN
         mpViewer->RequestStop();
         while(!mpViewer->isStopped())
             usleep(3000);
+#endif
     }
 
     // Reset Local Mapping
@@ -4392,7 +4395,9 @@ void Tracking::Reset(bool bLocMap)
     mvIniMatches.clear();
 
     if(mpViewer)
+#ifdef ORB_SLAM3_HAS_PANGOLIN
         mpViewer->Release();
+#endif
 
     Verbose::PrintMess("   End reseting! ", Verbose::VERBOSITY_NORMAL);
 }
@@ -4402,9 +4407,11 @@ void Tracking::ResetActiveMap(bool bLocMap)
     Verbose::PrintMess("Active map Reseting", Verbose::VERBOSITY_NORMAL);
     if(mpViewer)
     {
+#ifdef ORB_SLAM3_HAS_PANGOLIN
         mpViewer->RequestStop();
         while(!mpViewer->isStopped())
             usleep(3000);
+#endif
     }
 
     Map* pMap = mpAtlas->GetCurrentMap();
@@ -4504,7 +4511,9 @@ void Tracking::ResetActiveMap(bool bLocMap)
     mbVelocity = false;
 
     if(mpViewer)
+#ifdef ORB_SLAM3_HAS_PANGOLIN
         mpViewer->Release();
+#endif
 
     Verbose::PrintMess("   End reseting! ", Verbose::VERBOSITY_NORMAL);
 }

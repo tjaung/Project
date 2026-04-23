@@ -10,7 +10,6 @@
 #include <vector>
 
 #include <opencv2/core/core.hpp>
-#include <onnxruntime_cxx_api.h>
 
 namespace ORB_SLAM3
 {
@@ -32,19 +31,13 @@ public:
     void ResetQueue();
 
 private:
+    class Impl;
+
     float ComputeScaleFactor(const cv::Size& size) const;
     bool PrepareInput(const cv::Mat& bgrImage, float scaleFactor);
     void WorkerLoop();
 
-    Ort::Env mEnv;
-    Ort::SessionOptions mSessionOptions;
-    std::unique_ptr<Ort::Session> mpSession;
-
     std::string mModelPath;
-    std::string mInputNameStorage;
-    std::string mOutputNameStorage;
-    std::vector<const char*> mvInputNames;
-    std::vector<const char*> mvOutputNames;
 
     std::vector<float> mvInputData;
     std::array<int64_t, 4> mInputShape;
@@ -63,6 +56,8 @@ private:
     int mCompletedFrameId;
     bool mbHasCompletedResult;
     bool mbStopWorker;
+
+    std::unique_ptr<Impl> mpImpl;
 };
 
 } // namespace ORB_SLAM3

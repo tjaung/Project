@@ -20,13 +20,20 @@
 #ifndef MAPDRAWER_H
 #define MAPDRAWER_H
 
-#include"Atlas.h"
-#include"MapPoint.h"
-#include"KeyFrame.h"
+#include "Atlas.h"
+#include "KeyFrame.h"
+#include "MapPoint.h"
 #include "Settings.h"
-#include<pangolin/pangolin.h>
 
-#include<mutex>
+#include <mutex>
+#include <opencv2/core/core.hpp>
+
+#ifdef ORB_SLAM3_HAS_PANGOLIN
+namespace pangolin
+{
+class OpenGlMatrix;
+}
+#endif
 
 namespace ORB_SLAM3
 {
@@ -43,13 +50,17 @@ public:
 
     Atlas* mpAtlas;
 
+#ifdef ORB_SLAM3_HAS_PANGOLIN
     void DrawMapPoints();
     void DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const bool bDrawInertialGraph, const bool bDrawOptLba);
     void DrawCurrentCamera(pangolin::OpenGlMatrix &Twc);
+#endif
     void SetCurrentCameraPose(const Sophus::SE3f &Tcw);
     void SetReferenceKeyFrame(KeyFrame *pKF);
-    void GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M, pangolin::OpenGlMatrix &MOw);
     Sophus::SE3f GetCurrentCameraPose();
+#ifdef ORB_SLAM3_HAS_PANGOLIN
+    void GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M, pangolin::OpenGlMatrix &MOw);
+#endif
 
 private:
 

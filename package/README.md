@@ -13,6 +13,321 @@ Build portability:
 - if you want machine-specific tuning for a local-only build, configure with:
   - `-DMONOCULAR_SLAM_ENABLE_NATIVE_OPTIMIZATION=ON`
 
+Lightweight / portable build defaults:
+
+- Pangolin viewer support is now optional and disabled by default
+- desktop OpenCV examples are optional
+- the dataset runner is optional
+- the C API is optional
+- Depth Anything V2 is built behind an ONNX Runtime capability check instead of being hard-wired to one desktop install
+
+This means the default package build is now much closer to a portable core:
+
+- core SLAM library
+- C++ API
+- optional C API
+- no required desktop viewer dependency
+
+## Dependency Model
+
+The package now separates dependencies into two groups.
+
+Source dependencies bundled in `Thirdparty/`:
+
+- `Thirdparty/DBoW2`
+- `Thirdparty/g2o`
+- `Thirdparty/Sophus`
+- `Thirdparty/YOLO`
+
+These remain part of the package source tree and are the most portable part of the stack. They are intended to build from source on desktop and mobile targets, including Android NDK builds.
+
+Platform dependencies supplied by the target environment:
+
+- OpenCV
+- OpenSSL
+- Boost serialization
+- optional ONNX Runtime for Depth Anything V2
+- optional Pangolin for the desktop viewer
+
+The package no longer requires Pangolin for the core library.
+
+## Build Profiles
+
+### Default portable build
+
+From `package/`:
+
+```bash
+./build.sh
+```
+
+This now builds with:
+
+- portable CPU flags
+- Pangolin viewer disabled
+- desktop examples enabled
+- dataset runner enabled
+- C API enabled
+
+### Lightweight core build
+
+This is the recommended profile when preparing for Android or another mobile target:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMONOCULAR_SLAM_ENABLE_PANGOLIN_VIEWER=OFF \
+  -DMONOCULAR_SLAM_BUILD_EXAMPLES=OFF \
+  -DMONOCULAR_SLAM_BUILD_DATASET_APP=OFF \
+  -DMONOCULAR_SLAM_BUILD_C_API=ON
+
+cmake --build build -j4
+```
+
+That gives you:
+
+- the core SLAM shared library
+- the C++ API
+- the C API wrapper
+- no Pangolin dependency
+- no desktop-only sample apps
+
+### Optional desktop viewer build
+
+If you still want the old Pangolin viewer on desktop:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMONOCULAR_SLAM_ENABLE_PANGOLIN_VIEWER=ON
+
+cmake --build build -j4
+```
+
+If Pangolin is not found, the build falls back to viewer-disabled mode instead of failing the entire package build.
+
+### Optional Depth Anything V2 / ONNX Runtime
+
+Depth Anything V2 is now configurable instead of tied to one host machine.
+
+You can point the package to ONNX Runtime with either:
+
+- `-DMONOCULAR_SLAM_ONNXRUNTIME_ROOT=/path/to/onnxruntime`
+- or environment variable `ONNXRUNTIME_ROOT`
+
+Example:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMONOCULAR_SLAM_ONNXRUNTIME_ROOT=/path/to/onnxruntime
+```
+
+If ONNX Runtime is not found:
+
+- the package still builds
+- `DepthAnythingV2` is compiled in stub mode
+- monocular DA2 runtime support is simply unavailable until ONNX Runtime is supplied
+
+## Android Direction
+
+The package is not yet drop-in Android-ready, but it is now structured for that path:
+
+- no required Pangolin dependency in the core
+- `Thirdparty/` dependencies stay in-source
+- portable default compiler flags
+- C API layer available for JNI
+- desktop-only runners and examples can be disabled cleanly
+
+The next Android integration layer would typically be:
+
+1. build the lightweight core profile with the Android NDK
+2. supply Android-compatible OpenCV and ONNX Runtime binaries
+3. link against `monocular_slam_capi`
+4. call the C API from JNI
+5. expose Kotlin-friendly wrappers on top of JNI
+
+## Android Build And Android Studio Integration
+
+The package now includes an Android-oriented native entry point:
+
+- Android CMake entry: `package/android/CMakeLists.txt`
+- JNI bridge: `package/android/jni/MonocularSlamJni.cpp`
+- Kotlin wrappers: `package/android/kotlin/com/timjaung/monocularslam/MonocularSlamNative.kt`
+- Android configure helper: `package/android/configure_android.sh`
+
+This path is intentionally lightweight:
+
+- Pangolin viewer disabled
+- desktop examples disabled
+- dataset app disabled
+- C API enabled
+- native optimization disabled by default
+- Depth Anything V2 disabled by default unless you later wire an Android ONNX Runtime
+
+### What You Need Installed
+
+On the machine that will build the native Android library:
+
+- Android Studio
+- Android SDK
+- Android NDK
+- OpenCV Android SDK
+
+Environment variables the helper script understands:
+
+- `ANDROID_SDK_ROOT`
+- `ANDROID_NDK_ROOT`
+- `ANDROID_OPENCV_SDK`
+- optional `ANDROID_ABI` default `arm64-v8a`
+- optional `ANDROID_PLATFORM` default `android-24`
+
+### Configure An Android Build
+
+From `package/`:
+
+```bash
+export ANDROID_OPENCV_SDK=/path/to/OpenCV-android-sdk
+./android/configure_android.sh
+cmake --build build-android-arm64-v8a -j4
+```
+
+If you want a different ABI or API level:
+
+```bash
+ANDROID_ABI=arm64-v8a ANDROID_PLATFORM=android-24 ./android/configure_android.sh
+```
+
+The result is an Android JNI shared library build rooted in:
+
+- `build-android-<abi>/`
+
+The JNI target produced there is:
+
+- `monocular_slam_jni`
+
+Important:
+
+- the Android path now has CMake, JNI, and Kotlin scaffolding
+- but it still depends on Android-compatible builds of the package's non-bundled platform dependencies
+- in practice that means at minimum:
+  - OpenCV Android SDK
+  - Boost serialization for Android
+  - OpenSSL for Android
+- DA2 additionally needs Android ONNX Runtime if you want it enabled later
+
+### Import Into Android Studio
+
+Yes, you can now copy `package/` into an Android Studio project as the native module source, but you still need to wire it in with `externalNativeBuild`.
+
+Recommended layout inside your Android Studio project:
+
+- `app/src/main/cpp/monocular_slam/`
+
+After copying `package/`, point Android Studio at:
+
+- `app/src/main/cpp/monocular_slam/android/CMakeLists.txt`
+
+In your app-level `build.gradle.kts`, the shape should look like:
+
+```kotlin
+android {
+    defaultConfig {
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DOpenCV_DIR=${'$'}{projectDir}/../OpenCV-android-sdk/sdk/native/jni"
+                )
+            }
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/monocular_slam/android/CMakeLists.txt")
+        }
+    }
+}
+```
+
+The exact OpenCV path is up to your Android project layout.
+
+### Kotlin Entry Points
+
+The provided Kotlin file gives you:
+
+- `MonocularSlamNative`
+  - raw JNI calls
+- `MdslamSnapshot`
+  - mutable snapshot object populated from JNI
+- `MonocularSlamSession`
+  - a lightweight Kotlin wrapper around the native handle
+
+Basic usage:
+
+```kotlin
+val session = MonocularSlamSession()
+
+val ok = session.initialize(
+    vocabularyPath = vocabPath,
+    settingsPath = settingsPath,
+    useViewer = false
+)
+
+if (ok) {
+    session.processFrameRgba(
+        rgbaBuffer = imageProxyBuffer,
+        width = width,
+        height = height,
+        strideBytes = rowStrideBytes,
+        timestamp = timestampSec,
+        frameName = "camera_frame"
+    )
+
+    val snapshot = session.getSnapshot()
+}
+```
+
+On Android, `vocabularyPath` and `settingsPath` must be real filesystem paths.
+
+That usually means:
+
+1. bundle the files in app assets or download them at first launch
+2. copy them into your app's files directory
+3. pass those extracted file paths into `initialize(...)`
+
+### CameraX / Android Camera Note
+
+For Android, the most natural flow is:
+
+1. receive camera frames in Kotlin from CameraX or Camera2
+2. hand the frame buffer into JNI
+3. call `processFrameRgba(...)` or `processFrameBgr(...)`
+4. read pose / tracking state / map info back through `MdslamSnapshot`
+
+This is usually a better fit than trying to use the desktop-style `OpenVideo(...)` path on Android.
+
+### Current Android Limitations
+
+The Android path is now scaffolded, but a few things are intentionally conservative:
+
+- DA2 is off by default on Android until Android ONNX Runtime is supplied
+- desktop OpenCV window examples are not part of the Android build
+- Pangolin viewer is not part of the Android build
+- the current JNI snapshot is intentionally compact
+
+That means the Android build path is currently aimed at:
+
+- core SLAM
+- C API
+- JNI bridge
+- Kotlin integration
+
+instead of desktop visualization tools.
+
 Design goals:
 
 - preserve the research monocular pipeline behavior
