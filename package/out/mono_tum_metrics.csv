@@ -1,0 +1,2 @@
+dataset,matched_pairs,ate_rmse_m,ate_mean_m,ate_median_m,ate_scale,rpe_interval_sec,rpe_pairs,rpe_rmse_m,rpe_mean_m,rpe_median_m,rpe_rmse_percent,rpe_mean_percent,rpe_median_percent,rpe_rmse_deg,tracking_time_mean_ms,tracking_time_median_ms
+rgbd_dataset_freiburg3_walking_xyz,648,0.020592186930433545,0.014937138362700839,0.011239542535590698,13.323141173244563,1.0,619,0.0276730918653106,0.021102413858052033,0.015612802803713959,24.789365299864247,14.620742438876839,8.930311797341679,0.6567759419820646,25.837442,20.942915
