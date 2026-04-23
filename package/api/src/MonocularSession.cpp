@@ -220,6 +220,25 @@ bool MonocularSession::Initialize(const SessionConfig& config)
     return true;
 }
 
+FrameData MonocularSession::ProcessFrame(const cv::Mat& rgb, double timestamp, const std::string& frame_name)
+{
+    std::lock_guard<std::mutex> lock(mImpl->mutex);
+    if(!mImpl->initialized)
+        throw std::runtime_error("MonocularSession is not initialized.");
+    if(mImpl->worker.joinable() || mImpl->dataset_open || mImpl->video_open)
+        throw std::runtime_error("MonocularSession is busy with an active runner.");
+
+    FrameData out = mImpl->pipeline.ProcessFrame(rgb, timestamp, frame_name);
+    mImpl->snapshot.initialized = mImpl->initialized;
+    mImpl->snapshot.running = false;
+    mImpl->snapshot.paused = false;
+    mImpl->snapshot.runner_state = mImpl->state;
+    mImpl->snapshot.current_frame = mImpl->pipeline.GetCurrentFrameData();
+    mImpl->snapshot.previous_frame = mImpl->pipeline.GetPreviousFrameData();
+    mImpl->snapshot.metrics = mImpl->metrics;
+    return out;
+}
+
 void MonocularSession::Shutdown()
 {
     Stop();

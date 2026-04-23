@@ -163,8 +163,10 @@ ${ONNXRUNTIME_LIB}
 )
 
 add_library(monocular_slam_api SHARED
+api/src/Calibration.cpp
 api/src/MonocularPipeline.cpp
 api/src/MonocularSession.cpp
+api/include/monocular_slam/Calibration.h
 api/include/monocular_slam/Config.h
 api/include/monocular_slam/Types.h
 api/include/monocular_slam/MonocularPipeline.h
@@ -178,6 +180,20 @@ ${PROJECT_SOURCE_DIR}/api/include
 
 target_link_libraries(monocular_slam_api
 ${PROJECT_NAME}
+)
+
+add_library(monocular_slam_capi SHARED
+api/src/c_api.cpp
+api/include/monocular_slam/c_api.h
+)
+
+target_include_directories(monocular_slam_capi
+PUBLIC
+${PROJECT_SOURCE_DIR}/api/include
+)
+
+target_link_libraries(monocular_slam_capi
+monocular_slam_api
 )
 
 add_executable(dataset_debug
@@ -210,6 +226,14 @@ target_link_libraries(video_ar_session
         monocular_slam_api
         ${OpenCV_LIBS})
 set_target_properties(video_ar_session PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/examples)
+
+add_executable(camera_calibration
+        examples/camera_calibration.cpp)
+target_link_libraries(camera_calibration
+        monocular_slam_api
+        ${OpenCV_LIBS})
+set_target_properties(camera_calibration PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/examples)
 
 if(realsense2_FOUND)

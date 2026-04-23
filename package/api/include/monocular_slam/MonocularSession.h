@@ -37,6 +37,8 @@ public:
     bool Initialize(const SessionConfig& config);
     void Shutdown();
 
+    FrameData ProcessFrame(const cv::Mat& rgb, double timestamp, const std::string& frame_name = std::string());
+
     bool StartVideo(const VideoSourceConfig& config);
     bool StartDatasetRun(const DatasetRunConfig& config);
     bool OpenVideo(const VideoSourceConfig& config);
